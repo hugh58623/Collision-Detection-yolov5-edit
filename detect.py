@@ -35,10 +35,32 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, time_sync
 
 
+def calculate_distance(xyxy):
+    img_height = 640
+    img_width = 640
+
+    # Calculate the relative size of the the bounding box for a person. 80% = 2ft, 50% = 5ft
+    percentage_of_screen = ((xyxy[2]-xyxy[0]) / img_width) * 100
+    
+    # 1ft = 90% + 
+    # 2ft = 80% screen (0.78)
+    # 3ft = 70%
+    # 4ft = 60%
+    # 5ft = 50% screen (0.5)
+    # 6ft = 40%
+    # 7ft = 30%
+    # 8ft = 22.5% screen (0.225)
+    # print(percentage_of_screen)
+    print((xyxy[2]-xyxy[0]) / img_width)
+    print("LOOKING AT A PERSON")
+
+    return "L = " + str((100 - percentage_of_screen) / 10)
+    
+   
 @torch.no_grad()
 def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         source=ROOT / 'data/images',  # file/dir/URL/glob, 0 for webcam
-        imgsz=640,  # inference size (pixels)
+        imgsz=1000,  # inference size (pixels)
         conf_thres=0.25,  # confidence threshold
         iou_thres=0.45,  # NMS IOU threshold
         max_det=1000,  # maximum detections per image
@@ -77,27 +99,28 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
     # Load model
     device = select_device(device)
     model = DetectMultiBackend(weights, device=device, dnn=dnn)
-    stride, names, pt, jit, onnx, engine = model.stride, model.names, model.pt, model.jit, model.onnx, model.engine
+    stride, names, pt, jit, onnx = model.stride, model.names, model.pt, model.jit, model.onnx
     imgsz = check_img_size(imgsz, s=stride)  # check image size
 
     # Half
-    half &= (pt or jit or engine) and device.type != 'cpu'  # half precision only supported by PyTorch on CUDA
-    if pt or jit:
+    half &= pt and device.type != 'cpu'  # half precision only supported by PyTorch on CUDA
+    if pt:
         model.model.half() if half else model.model.float()
 
     # Dataloader
     if webcam:
         view_img = check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt)
+        dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt and not jit)
         bs = len(dataset)  # batch_size
     else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt)
+        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt and not jit)
         bs = 1  # batch_size
     vid_path, vid_writer = [None] * bs, [None] * bs
 
     # Run inference
-    model.warmup(imgsz=(1, 3, *imgsz), half=half)  # warmup
+    if pt and device.type != 'cpu':
+        model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.model.parameters())))  # warmup
     dt, seen = [0.0, 0.0, 0.0], 0
     for path, im, im0s, vid_cap, s in dataset:
         t1 = time_sync()
@@ -158,7 +181,24 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                        
+                        # label = label + calculate_size(xyxy)
+                        
+                        label = label
+                        print("LABEL IS", label)
+                        #if "person" in label:
+                            #label += calculate_distance(xyxy)
+                        
+                        if "cell phone" in label:
+                            label += calculate_distance(xyxy)
+                            
+                        print(xyxy)
+
+                        #cd desktop/yang yolov5 edits/yolov5
                         annotator.box_label(xyxy, label, color=colors(c, True))
+                        
+                        
+                        
                         if save_crop:
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
@@ -169,7 +209,8 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
             im0 = annotator.result()
             if view_img:
                 cv2.imshow(str(p), im0)
-                cv2.waitKey(1)  # 1 millisecond
+                if cv2.waitKey(5) and 0xFF == 27:
+                    return                # 1 millisecond
 
             # Save results (image with detections)
             if save_img:
