@@ -21,6 +21,11 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 
+from sklearn import linear_model
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.pipeline import Pipeline
+from sklearn.pipeline import make_pipeline
+
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
@@ -35,12 +40,12 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, time_sync
 
 
-def calculate_distance(xyxy):
-    img_height = 640
-    img_width = 640
+#def calculate_distance(xyxy):
+ #   img_height = 640
+ #   img_width = 640
 
     # Calculate the relative size of the the bounding box for a person. 80% = 2ft, 50% = 5ft
-    percentage_of_screen = ((xyxy[2]-xyxy[0]) / img_width) * 100
+ #   percentage_of_screen = ((xyxy[2]-xyxy[0]) / img_width) * 100
     
     # 1ft = 90% + 
     # 2ft = 80% screen (0.78)
@@ -51,10 +56,69 @@ def calculate_distance(xyxy):
     # 7ft = 30%
     # 8ft = 22.5% screen (0.225)
     # print(percentage_of_screen)
-    print((xyxy[2]-xyxy[0]) / img_width)
-    print("LOOKING AT A PERSON")
+  #  print((xyxy[2]-xyxy[0]) / img_width)
+  #  print("LOOKING AT A PERSON")
 
-    return "L = " + str((100 - percentage_of_screen) / 10)
+  #  return "L = " + str((100 - percentage_of_screen) / 10)
+
+    
+def calculate_distance(camera, object_type, xyxy):
+    img_height = 640
+    img_width = 640
+    input_data = [
+          [0, 0, 80],
+          [0, 0, 60],
+          [0, 0, 46.5],
+          [0, 0, 40],
+          [0, 0, 35],
+
+          [0, 1, 56],
+          [0, 1, 28],
+          [0, 1, 18],
+          [0, 1, 14],
+          [0, 1, 11.75],
+          [0, 1, 8.5],
+
+          [0, 2, 65],
+          [0, 2, 55],
+          [0, 2, 47],
+          [0, 2, 41.2],
+          [0, 2, 30],
+          [0, 2, 20],
+          [0, 2, 15],
+
+          [1, 0, 67],
+          [1, 0, 46],
+          [1, 0, 40],
+          [1, 0, 32.5],
+          [1, 0, 28],
+
+          [1, 1, 54],
+          [1, 1, 26],
+          [1, 1, 16.7],
+          [1, 1, 13],
+          [1, 1, 10.5],
+          [1, 1, 7]
+
+        ]
+
+        #Distance in feet
+    output_data = [
+          2,3,4,5,6, # person
+          1,2,3,4,5,6,# phone
+          2,3,4,5,6, 7, 8, # stuffed penguin
+          2,3,4,5,6,
+          1,2,3,4,5,6,
+        ]
+    percentage_of_screen = ((xyxy[2]-xyxy[0]) / img_width) * 100
+    test = [[camera, object_type, percentage_of_screen]]
+    cv_num = 5
+    # Polynomial Ridge Regression (3 Poly Features)
+    model2_5 = make_pipeline(PolynomialFeatures(3),linear_model.LinearRegression())
+    model2_5.fit(input_data, output_data)
+    #print('prediction = ',model2_5.predict(test))
+    #print('score = 'sum(cross_val_score(model2_5, input_data, output_data, cv = cv_num, scoring = 'neg_mean_squared_error')) / cv_num)
+    return str(round(model2_5.predict(test)[0], 2))
     
    
 @torch.no_grad()
@@ -186,13 +250,16 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
                         
                         label = label
                         print("LABEL IS", label)
-                        #if "person" in label:
-                            #label += calculate_distance(xyxy)
+                        if "person" in label:
+                            label += "distance= " + calculate_distance(1,0,xyxy) + "feet"
                         
                         if "cell phone" in label:
-                            label += calculate_distance(xyxy)
+                            label += "distance= " + calculate_distance(1,1,xyxy) + "feet"
+                        
+                        if "stuffed penguin" in label:
+                            label += "distance= " + calculate_distance(1,2,xyxy) + "feet"
                             
-                        print(xyxy)
+                        #print(xyxy)
 
                         #cd desktop/yang yolov5 edits/yolov5
                         annotator.box_label(xyxy, label, color=colors(c, True))
